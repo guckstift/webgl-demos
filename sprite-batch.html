@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>My Game</title>
+<script>
+
+addEventListener("load", main);
+
+function main()
+{
+	canvas = document.createElement("canvas");
+	canvas.width = 800;
+	canvas.height = 600;
+	canvas.style.position = "absolute";
+	canvas.style.top = "0";
+	canvas.style.left = "0";
+	gl = canvas.getContext("webgl");
+	gl.clearColor(0.0, 0.0, 0.0, 1.0);
+	gl.enable(gl.BLEND);
+	gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+	glExtInstanced = gl.getExtension("ANGLE_instanced_arrays");
+	document.body.append(canvas);
+	addEventListener("resize", onWindowResize);
+	onWindowResize();
+	
+	fpsLabel = document.createElement("div");
+	fpsLabel.style.position = "absolute";
+	fpsLabel.style.top = "1rem";
+	fpsLabel.style.left = "1rem";
+	fpsLabel.style.color = "#fff";
+	fpsLabel.style.fontSize = "1.5rem";
+	fpsLabel.style.fontFamily = "sans-serif";
+	fpsLabel.style.textShadow = "#000 0 0 2px, #000 0 0 2px, #000 0 0 2px";
+	fpsLabel.innerHTML = "FPS:";
+	document.body.append(fpsLabel);
+	
+	vertShader = gl.createShader(gl.VERTEX_SHADER);
+	gl.shaderSource(
+		vertShader,
+		"precision highp float;"+
+		""+
+		"attribute float aVert;"+
+		"attribute float aAngle;"+
+		"attribute float aAlpha;"+
+		"attribute vec2 aAnchor;"+
+		"attribute vec2 aSize;"+
+		"attribute vec2 aScale;"+
+		"attribute vec2 aPos;"+
+		""+
+		"uniform vec2 uScreenSize;"+
+		""+
+		"varying vec2 vTexCoord;"+
+		"varying float vAlpha;"+
+		""+
+		"vec2 rotate(vec2 v, float a)"+
+		"{"+
+		"	float sina = sin(a);"+
+		"	float cosa = cos(a);"+
+		"	"+
+		"	return vec2("+
+		"		v.x * cosa - v.y * sina,"+
+		"		v.x * sina + v.y * cosa"+
+		"	);"+
+		"}"+
+		""+
+		"void main()"+
+		"{"+
+		"	vec2 vert = vec2(mod(aVert, 2.0), floor(aVert/2.0));"+
+		"	vec2 screenVert = rotate((vert - aAnchor) * aSize * aScale, aAngle) + aPos;"+
+		"	vec2 clipVert = screenVert * 2.0 / uScreenSize * vec2(+1.0, -1.0) + vec2(-1.0, +1.0);"+
+		"	"+
+		"	gl_Position = vec4(clipVert, 0.0, 1.0);"+
+		"	"+
+		"	vTexCoord = vert;"+
+		"	vAlpha = aAlpha;"+
+		"}"
+	);
+	gl.compileShader(vertShader);
+	
+	if(!gl.getShaderParameter(vertShader, gl.COMPILE_STATUS)) {
+		throw(
+			"A shader compilation error occurred: " +
+			gl.getShaderInfoLog(vertShader)
+		);
+	}
+		
+	fragShader = gl.createShader(gl.FRAGMENT_SHADER);
+	gl.shaderSource(
+		fragShader,
+		"precision highp float;"+
+		""+
+		"uniform sampler2D uTex;"+
+		""+
+		"varying vec2 vTexCoord;"+
+		"varying float vAlpha;"+
+		""+
+		"void main()"+
+		"{"+
+		"	gl_FragColor = texture2D(uTex, vTexCoord);"+
+		"	gl_FragColor.a *= vAlpha;"+
+		"}"
+	);
+	gl.compileShader(fragShader);
+	
+	if(!gl.getShaderParameter(fragShader, gl.COMPILE_STATUS)) {
+		throw(
+			"A shader compilation error occurred: " +
+			gl.getShaderInfoLog(fragShader)
+		);
+	}
+	
+	shaderProg = gl.createProgram();
+	gl.attachShader(shaderProg, vertShader);
+	gl.attachShader(shaderProg, fragShader);
+	gl.linkProgram(shaderProg);
+	
+	aVert = gl.getAttribLocation(shaderProg, "aVert");
+	aAngle = gl.getAttribLocation(shaderProg, "aAngle");
+	aAlpha = gl.getAttribLocation(shaderProg, "aAlpha");
+	aAnchor = gl.getAttribLocation(shaderProg, "aAnchor");
+	aSize = gl.getAttribLocation(shaderProg, "aSize");
+	aScale = gl.getAttribLocation(shaderProg, "aScale");
+	aPos = gl.getAttribLocation(shaderProg, "aPos");
+	
+	uScreenSize = gl.getUniformLocation(shaderProg, "uScreenSize");
+	
+	vertBuf = gl.createBuffer();
+	gl.bindBuffer(gl.ARRAY_BUFFER, vertBuf);
+	gl.bufferData(
+		gl.ARRAY_BUFFER,
+		new Uint8Array([
+			0, 1, 2, 3,
+		]),
+		gl.STATIC_DRAW
+	);
+	
+	spriteCount = 65536;//40000;//8192;//2048;//1024;//8192;//4096;
+	
+	sprites = new Float32Array(10 * spriteCount);
+	
+	for(var i=0; i<spriteCount; i++) {
+		sprites[i * 10 + 0] = Math.random() * Math.PI * 2;
+		sprites[i * 10 + 1] = Math.random();
+		sprites[i * 10 + 2] = 0.5;
+		sprites[i * 10 + 3] = 0.5;
+		sprites[i * 10 + 4] = 64.0;
+		sprites[i * 10 + 5] = 64.0;
+		sprites[i * 10 + 6] = 0.1;//0.5 + Math.random() * 1.0;
+		sprites[i * 10 + 7] = 0.1;//0.5 + Math.random() * 1.0;
+		sprites[i * 10 + 8] = Math.random() * gl.drawingBufferWidth;
+		sprites[i * 10 + 9] = Math.random() * gl.drawingBufferHeight;
+	}
+	
+	spriteBuf = gl.createBuffer();
+	gl.bindBuffer(gl.ARRAY_BUFFER, spriteBuf);
+	gl.bufferData(gl.ARRAY_BUFFER, sprites, gl.STATIC_DRAW);
+	
+	rainbowConeImg = document.createElement("img");
+	rainbowConeImg.addEventListener("load", imgLoaded);
+	rainbowConeImg.src = "rainbow-cone.png";
+}
+
+function onWindowResize()
+{
+	canvas.width = innerWidth;
+	canvas.height = innerHeight;
+	gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
+}
+
+function imgLoaded()
+{
+	rainbowConeTex = gl.createTexture();
+	gl.bindTexture(gl.TEXTURE_2D, rainbowConeTex);
+	gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, rainbowConeImg);
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+	
+	gl.useProgram(shaderProg);
+	
+	gl.bindBuffer(gl.ARRAY_BUFFER, vertBuf);
+	gl.enableVertexAttribArray(aVert);
+	gl.vertexAttribPointer(aVert, 1, gl.UNSIGNED_BYTE, false, 0, 0);
+	
+	gl.bindBuffer(gl.ARRAY_BUFFER, spriteBuf);
+	
+	gl.enableVertexAttribArray(aAngle);
+	gl.vertexAttribPointer(aAngle, 1, gl.FLOAT, false, 40, 0);
+	glExtInstanced.vertexAttribDivisorANGLE(aAngle, 1);
+	
+	gl.enableVertexAttribArray(aAlpha);
+	gl.vertexAttribPointer(aAlpha, 1, gl.FLOAT, false, 40, 4);
+	glExtInstanced.vertexAttribDivisorANGLE(aAlpha, 1);
+	
+	gl.enableVertexAttribArray(aAnchor);
+	gl.vertexAttribPointer(aAnchor, 2, gl.FLOAT, false, 40, 8);
+	glExtInstanced.vertexAttribDivisorANGLE(aAnchor, 1);
+	
+	gl.enableVertexAttribArray(aSize);
+	gl.vertexAttribPointer(aSize, 2, gl.FLOAT, false, 40, 16);
+	glExtInstanced.vertexAttribDivisorANGLE(aSize, 1);
+	
+	gl.enableVertexAttribArray(aScale);
+	gl.vertexAttribPointer(aScale, 2, gl.FLOAT, false, 40, 24);
+	glExtInstanced.vertexAttribDivisorANGLE(aScale, 1);
+	
+	gl.enableVertexAttribArray(aPos);
+	gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 40, 32);
+	glExtInstanced.vertexAttribDivisorANGLE(aPos, 1);
+	
+	last = performance.now();
+	frames = 0;
+	
+	requestAnimationFrame(render);
+}
+
+function render(now)
+{
+	gl.clear(gl.COLOR_BUFFER_BIT);
+	
+	for(var i=0; i<spriteCount; i++) {
+		sprites[i * 10 + 0] += 0.02;
+		sprites[i * 10 + 1] += 0.02;
+		sprites[i * 10 + 1] %= 1.0;
+		sprites[i * 10 + 8] += Math.random() * 5.0;
+		sprites[i * 10 + 9] += Math.random() * 5.0;
+		sprites[i * 10 + 8] %= gl.drawingBufferWidth;
+		sprites[i * 10 + 9] %= gl.drawingBufferHeight;
+	}
+	
+	gl.bindBuffer(gl.ARRAY_BUFFER, spriteBuf);
+	gl.bufferSubData(gl.ARRAY_BUFFER, 0, sprites);
+	
+	gl.uniform2f(uScreenSize, gl.drawingBufferWidth, gl.drawingBufferHeight);
+	
+	glExtInstanced.drawArraysInstancedANGLE(gl.TRIANGLE_STRIP, 0, 4, spriteCount);
+	
+	frames ++;
+	
+	if(frames === 60) {
+		delta = now - last;
+		fps = frames / delta * 1000;
+		fpsLabel.innerHTML = "FPS: " + Math.round(fps);
+		last = now;
+		frames = 0;
+	}
+	
+	requestAnimationFrame(render);
+}
+
+</script>
+</head>
+</html>
